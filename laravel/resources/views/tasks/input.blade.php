@@ -195,7 +195,18 @@ async function api(url, method='GET', body=null){
 
 async function loadMasters(){
   const json = await api('/api/masters');
-  masters = json.data;
+
+  // 返り値の形が揺れても拾えるようにする
+  const m = json?.data?.data ?? json?.data ?? {};
+
+  masters = {
+    clients: Array.isArray(m.clients) ? m.clients : [],
+    tasks:   Array.isArray(m.tasks) ? m.tasks : [],
+  };
+
+  // デバッグしたいとき用
+  console.log('masters raw:', json);
+  console.log('masters normalized:', masters);
 }
 
 function addRow(prefill={}){
