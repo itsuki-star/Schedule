@@ -285,68 +285,93 @@ async function deleteRow(idx){
 }
 
 async function importCalendar(){
-  const date = elDate.value;
-  const json = await api('/api/calendar/import','POST',{
-    date, from_time:'00:00', to_time:'23:59'
-  });
+  try{
+    const date = elDate.value;
+    if (!date) throw new Error('日付が未選択です');
 
-  // 取得した予定を行として追加（source=calendar_importで保存までやる）
-  const imported = json.data.imported || [];
-  for (const ev of imported) {
-    addRow({
-      priority: rows.length+1,
-      minutes: ev.minutes,
-      client_name: '',
-      task_from: 'MTG', // デフォルト（あとで選び直しOK）
-      task_to: '',
-      count: '',
-      start_time: ev.start_time,
-      end_time: ev.end_time,
-      note: ev.title,
+    const json = await api('/api/calendar/import','POST',{
+      date, from_time:'00:00', to_time:'23:59'
     });
-    // 追加した行は自動保存（引用元として）
-    const i = rows.length - 1;
-    rows[i].note = `【Calendar】${rows[i].note}`;
-    // task_from が必須なので、仮に MTG を入れて保存
-    await api('/api/task/upsert','POST',{
-      id: null,
-      date,
-      user_email: CURRENT_USER_EMAIL,
-      user_name: CURRENT_USER_NAME,
-      mode: elMode.value,
-      priority: Number(rows[i].priority),
-      minutes: Number(rows[i].minutes),
-      client_name: rows[i].client_name,
-      task_from: rows[i].task_from,
-      task_to: rows[i].task_to,
-      task_label: taskLabel(rows[i]),
-      count: null,
-      start_time: rows[i].start_time,
-      end_time: rows[i].end_time,
-      note: rows[i].note,
-      source: 'calendar_import',
-    }).then(j=>{ rows[i].id = j.data.id; }).catch(()=>{});
+
+    const imported = json?.data?.imported || [];
+    for (const ev of imported) {
+      addRow({
+        priority: rows.length+1,
+        minutes: ev.minutes,
+        client_name: '',
+        task_from: 'MTG',
+        task_to: '',
+        count: '',
+        start_time: ev.start_time,
+        end_time: ev.end_time,
+        note: `【Calendar】${ev.title}`,
+      });
+
+      // 追加した行を自動保存（失敗しても引用自体は続ける）
+      const i = rows.length - 1;
+      try{
+        const saved = await api('/api/task/upsert','POST',{
+          id: null,
+          date,
+          user_email: CURRENT_USER_EMAIL,
+          user_name: CURRENT_USER_NAME,
+          mode: elMode.value,
+          priority: Number(rows[i].priority),
+          minutes: Number(rows[i].minutes),
+          client_name: rows[i].client_name,
+          task_from: rows[i].task_from,
+          task_to: rows[i].task_to,
+          task_label: taskLabel(rows[i]),
+          count: null,
+          start_time: rows[i].start_time,
+          end_time: rows[i].end_time,
+          note: rows[i].note,
+          source: 'calendar_import',
+        });
+        if (saved?.data?.id) rows[i].id = saved.data.id;
+      }catch(saveErr){
+        console.warn('auto-save failed:', saveErr);
+      }
+    }
+
+    elMsg.textContent = `カレンダー引用：${imported.length}件`;
+  }catch(e){
+    console.error(e);
+    elMsg.textContent = 'カレンダー引用に失敗: ' + (e?.message || e);
+    showError('カレンダー引用に失敗: ' + (e?.message || e));
+    throw e; // 上のラッパーでも拾えるように
   }
-  elMsg.textContent = `カレンダー引用：${imported.length}件`;
 }
 
 async function registerCalendar(){
-  const date = elDate.value;
-  const items = rows.map(r => ({
-    title: `${r.client_name ? r.client_name + ' ' : ''}${taskLabel(r)}`,
-    task_label: taskLabel(r),
-    client_name: r.client_name,
-    start_time: r.start_time,
-    end_time: r.end_time,
-    minutes: Number(r.minutes||0),
-    count: (r.count===''?null:Number(r.count)),
-    note: r.note || ''
-  })).filter(x => x.start_time && x.end_time);
+  try{
+    const date = elDate.value;
+    if (!date) throw new Error('日付が未選択です');
 
-  if (items.length===0) { elMsg.textContent='登録する時間帯がありません'; return; }
+    const items = rows.map(r => ({
+      title: `${r.client_name ? r.client_name + ' ' : ''}${taskLabel(r)}`,
+      task_label: taskLabel(r),
+      client_name: r.client_name,
+      start_time: r.start_time,
+      end_time: r.end_time,
+      minutes: Number(r.minutes||0),
+      count: (r.count===''?null:Number(r.count)),
+      note: r.note || ''
+    })).filter(x => x.start_time && x.end_time);
 
-  const json = await api('/api/calendar/register','POST',{date, items});
-  elMsg.textContent = `カレンダー登録：${json.data.created}件`;
+    if (items.length===0) {
+      elMsg.textContent='登録する時間帯がありません';
+      return;
+    }
+
+    const json = await api('/api/calendar/register','POST',{date, items});
+    elMsg.textContent = `カレンダー登録：${json?.data?.created ?? 0}件`;
+  }catch(e){
+    console.error(e);
+    elMsg.textContent = 'カレンダー登録に失敗: ' + (e?.message || e);
+    showError('カレンダー登録に失敗: ' + (e?.message || e));
+    throw e;
+  }
 }
 
 function bindEvents(){
@@ -371,8 +396,30 @@ function bindEvents(){
   });
 
   document.getElementById('btnAdd').addEventListener('click', ()=>{ alert('clicked'); addRow(); });
-  document.getElementById('btnImport').addEventListener('click', importCalendar);
-  document.getElementById('btnRegister').addEventListener('click', registerCalendar);
+  document.getElementById('btnImport').addEventListener('click', async ()=>{
+    try{
+      clearError();
+      elMsg.textContent = 'カレンダー引用中...';
+      await importCalendar();
+    }catch(e){
+      console.error(e);
+      elMsg.textContent = 'カレンダー引用に失敗: ' + (e?.message || e);
+      showError('カレンダー引用に失敗: ' + (e?.message || e));
+    }
+  });
+
+  document.getElementById('btnRegister').addEventListener('click', async ()=>{
+    try{
+      clearError();
+      elMsg.textContent = 'カレンダー登録中...';
+      await registerCalendar();
+    }catch(e){
+      console.error(e);
+      elMsg.textContent = 'カレンダー登録に失敗: ' + (e?.message || e);
+      showError('カレンダー登録に失敗: ' + (e?.message || e));
+    }
+  });
+
 
   // mode変更時も保存の意味が変わるので注意（必要なら別タブ運用）
 }
