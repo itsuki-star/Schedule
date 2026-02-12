@@ -36,7 +36,7 @@ return [
     ],
 
     'gas' => [
-        'webapp_url' => env('GAS_WEBAPP_URL'),
+        'webapp_url' => env('GAS_URL'),
         'shared_token' => env('GAS_SHARED_TOKEN'),
     ],
 

@@ -61,16 +61,17 @@ class TaskApiController extends Controller
     }
 
     public function importCalendar(Request $request)
-    {
-        $payload = $request->validate([
-            'date' => ['required','date_format:Y-m-d'],
-            'from_time' => ['required','regex:/^\d{2}:\d{2}$/'],
-            'to_time' => ['required','regex:/^\d{2}:\d{2}$/'],
-        ]);
+{
+    $payload = $request->validate([
+        'date' => ['required','date_format:Y-m-d'],
+        'from_time' => ['required','regex:/^\d{2}:\d{2}$/'],
+        'to_time' => ['required','regex:/^\d{2}:\d{2}$/'],
+        'user_email' => ['required','email'], // ← 追加
+    ]);
 
-        $data = $this->gas->call('importCalendar', $payload);
-        return response()->json(['ok'=>true, 'data'=>$data]);
-    }
+    $data = $this->gas->call('importCalendar', $payload);
+    return response()->json(['ok'=>true, 'data'=>$data]);
+}
 
     public function registerCalendar(Request $request)
     {

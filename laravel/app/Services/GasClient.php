@@ -12,7 +12,7 @@ class GasClient
         $token = (string) config('services.gas.shared_token');
 
         if ($url === '') {
-            throw new \RuntimeException('GAS_WEBAPP_URL is empty (.env)');
+            throw new \RuntimeException('GAS_URL is empty (.env)');
         }
         if ($token === '') {
             throw new \RuntimeException('GAS_SHARED_TOKEN is empty (.env)');

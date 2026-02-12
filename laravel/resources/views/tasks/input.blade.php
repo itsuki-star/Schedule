@@ -46,23 +46,20 @@
     <div style="display:flex; gap:10px; margin-top:10px;">
       <button class="btn" id="btnImport">カレンダー引用</button>
       <button class="btn" id="btnRegister">カレンダーに登録</button>
-      <select id="mode" style="width:140px;">
-        <option value="plan">予定</option>
-        <option value="actual">実績</option>
-      </select>
       <button class="btn btn-primary" id="btnAdd">+ 行追加</button>
     </div>
 
     <table>
       <thead>
         <tr>
-          <th style="width:90px;">優先</th>
-          <th style="width:100px;">分</th>
+          <th style="width:60px;">優先</th>
+          <th style="width:100px;">予定(分)</th>
+          <th style="width:100px;">実績(分)</th>
           <th style="width:220px;">クライアント</th>
           <th style="width:260px;">タスク</th>
           <th style="width:90px;">件数</th>
           <th style="width:170px;">時間帯</th>
-          <th>メモ</th>
+          <th style="width: 240px;">メモ</th>
           <th style="width:90px;"></th>
         </tr>
       </thead>
@@ -99,7 +96,7 @@ const elTbody = document.getElementById('tbody');
 const elSum = document.getElementById('sum');
 const elMsg = document.getElementById('msg');
 const elDate = document.getElementById('date');
-const elMode = document.getElementById('mode');
+
 
 function todayStr(){
   const d = new Date();
@@ -114,10 +111,11 @@ function uuid(){
 }
 
 function calcSum(){
-  const total = rows.reduce((a,r)=>a+(Number(r.minutes)||0),0);
-  const h = Math.floor(total/60);
-  const m = total%60;
-  elSum.textContent = `合計：${total}分（${h}時間${m}分）`;
+  const totalPlan = rows.reduce((a,r)=>a+(Number(r.plan_minutes)||0),0);
+  const totalActual = rows.reduce((a,r)=>a+(Number(r.actual_minutes)||0),0);
+  elSum.textContent = 
+  `予定：${totalPlan}分 / 実績：${totalActual}分`;
+  
 }
 
 function taskLabel(r){
@@ -133,7 +131,8 @@ function render(){
 
     tr.innerHTML = `
       <td><input type="number" min="1" value="${r.priority}" data-k="priority" data-i="${idx}"></td>
-      <td><input type="number" min="1" value="${r.minutes}" data-k="minutes" data-i="${idx}"></td>
+      <td><input type="number" min="0" value="${r.plan_minutes || ''}" data-k="plan_minutes" data-i="${idx}"></td>
+      <td><input type="number" min="0" value="${r.actual_minutes || ''}" data-k="actual_minutes" data-i="${idx}"></td>
       <td>
         <select data-k="client_name" data-i="${idx}">
           <option value="">（空白）</option>
@@ -213,7 +212,8 @@ function addRow(prefill={}){
   rows.push({
     id: prefill.id || null,
     priority: prefill.priority || (rows.length+1),
-    minutes: prefill.minutes || 60,
+    plan_minutes: prefill.plan_minutes || '',
+    actual_minutes: prefill.actual_minutes || '',
     client_name: prefill.client_name || '',
     task_from: prefill.task_from || '',
     task_to: prefill.task_to || '',
@@ -235,11 +235,10 @@ function scheduleSave(idx){
 async function saveRow(idx){
   const r = rows[idx];
   const date = elDate.value;
-  const mode = elMode.value;
 
   // バリデーション最小
   if (!r.priority || r.priority < 1) return;
-  if (!r.minutes || r.minutes < 1) return;
+  if (!r.plan_minutes && !r.actual_minutes) return;
   if (!r.task_from) return;
   if (!r.start_time || !r.end_time) return;
 
@@ -248,9 +247,9 @@ async function saveRow(idx){
     date,
     user_email: CURRENT_USER_EMAIL,
     user_name: CURRENT_USER_NAME,
-    mode,
     priority: Number(r.priority),
-    minutes: Number(r.minutes),
+    plan_minutes: r.plan_minutes === '' ? null : Number(r.plan_minutes),
+    actual_minutes: r.actual_minutes === '' ? null : Number(r.actual_minutes),
     client_name: r.client_name,
     task_from: r.task_from,
     task_to: r.task_to,
@@ -290,14 +289,18 @@ async function importCalendar(){
     if (!date) throw new Error('日付が未選択です');
 
     const json = await api('/api/calendar/import','POST',{
-      date, from_time:'00:00', to_time:'23:59'
+      date,
+      from_time:'00:00',
+      to_time:'23:59',
+      user_email: CURRENT_USER_EMAIL
     });
 
     const imported = json?.data?.imported || [];
     for (const ev of imported) {
       addRow({
         priority: rows.length+1,
-        minutes: ev.minutes,
+        plan_minutes: ev.minutes,
+        actual_minutes: '',
         client_name: '',
         task_from: 'MTG',
         task_to: '',
@@ -354,7 +357,7 @@ async function registerCalendar(){
       client_name: r.client_name,
       start_time: r.start_time,
       end_time: r.end_time,
-      minutes: Number(r.minutes||0),
+      minutes: Number(r.plan_minutes || r.actual_minutes || 0),
       count: (r.count===''?null:Number(r.count)),
       note: r.note || ''
     })).filter(x => x.start_time && x.end_time);
@@ -364,7 +367,11 @@ async function registerCalendar(){
       return;
     }
 
-    const json = await api('/api/calendar/register','POST',{date, items});
+    const json = await api('/api/calendar/register','POST',{
+      date,
+      user_email: CURRENT_USER_EMAIL,
+      items
+    });
     elMsg.textContent = `カレンダー登録：${json?.data?.created ?? 0}件`;
   }catch(e){
     console.error(e);
@@ -382,7 +389,7 @@ function bindEvents(){
     const idx = Number(i);
     rows[idx][k] = e.target.value;
     // 数値化したいもの
-    if (k==='minutes' || k==='priority' || k==='count') {
+    if (k==='plan_minutes' || k==='actual_minutes' || k==='priority' || k==='count') {
       // countは空許容
       rows[idx][k] = e.target.value === '' ? '' : Number(e.target.value);
     }
@@ -446,18 +453,19 @@ init();
 
 async function loadMemberTasks(){
   const date = elDate.value;
-  const mode = elMode.value;
 
   try{
     clearError();
-    const json = await api(`/api/tasks?date=${encodeURIComponent(date)}&mode=${encodeURIComponent(mode)}&user_email=${encodeURIComponent(CURRENT_USER_EMAIL)}`);
+    const json = await api(`/api/tasks?date=${encodeURIComponent(date)}
+    &user_email=${encodeURIComponent(CURRENT_USER_EMAIL)}`);
     const list = json.data.rows || [];
 
     // rows を置き換え
     rows = list.map(x => ({
       id: x.id,
       priority: x.priority || 1,
-      minutes: x.minutes || 60,
+      plan_minutes: x.plan_minutes || '',
+      actual_minutes: x.actual_minutes || '',
       client_name: x.client_name || '',
       task_from: x.task_from || x.task_label || '',
       task_to: x.task_to || '',
@@ -488,7 +496,7 @@ elMemberSelect.addEventListener('change', async ()=>{
 });
 
 elDate.addEventListener('change', loadMemberTasks);
-elMode.addEventListener('change', loadMemberTasks);
+
 </script>
 </body>
 </html>
